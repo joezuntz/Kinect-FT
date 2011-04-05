@@ -267,18 +267,26 @@ fftw_complex real_space_map[FREENECT_FRAME_PIX];
 fftw_complex fourier_space_map[FREENECT_FRAME_PIX];
 double abs_map[FREENECT_FRAME_PIX];
 uint16_t depth[FREENECT_FRAME_PIX];
+const int FRAME_COUNT = 5;
+uint16_t depth_buffer[5][FREENECT_FRAME_PIX];
+int frame_counter = 0;
 fftw_plan plan;
 int planned = 0;
 
 void depth_cb(freenect_device *dev, void *v_depth, uint32_t timestamp)
 {
 	int i;
+    
 	uint16_t *depth_original = (uint16_t*)v_depth;
 	if (!planned){
 		plan = fftw_plan_dft_2d(FREENECT_FRAME_H, FREENECT_FRAME_W, real_space_map, fourier_space_map, FFTW_FORWARD, FFTW_MEASURE);
 		fftw_print_plan(plan);
 		planned=1;
 		printf("Made plan for size (%d x %d)\n",FREENECT_FRAME_W,FREENECT_FRAME_H);
+		for (i=0; i<FREENECT_FRAME_PIX; i++)
+        {
+            depth[i] = 0;
+        }
     }
 
 	
@@ -300,6 +308,7 @@ void depth_cb(freenect_device *dev, void *v_depth, uint32_t timestamp)
 		if (abs_map[i]<min_value) min_value = abs_map[i];
 	}
 	
+	
 	double range_value = (1) / (max_value-min_value);
 	int j;
 	for (j=0; j<FREENECT_FRAME_PIX; j++) {
@@ -310,9 +319,32 @@ void depth_cb(freenect_device *dev, void *v_depth, uint32_t timestamp)
 		int i = y*FREENECT_FRAME_W+x;
 	    double value = ((abs_map[j]-min_value) * range_value);
         double value_scaled = 1 - cos(value * M_PI);
-        depth[i] = value_scaled * value_scaled * 65535;
+        depth_buffer[frame_counter][i] = value_scaled * value_scaled * 65535;
 	}
-//	printf("%u   %u    %u    %u   %u\n",depth[0],depth[10],depth[100], depth[500], depth[1000]);
+	
+    printf("Frame Count: %i\n", frame_counter);
+    int good_frame_count;
+	// Copy the summary of the frames into the frame buffer
+    if (frame_counter == FRAME_COUNT - 1) {
+        for (i=0; i<FREENECT_FRAME_PIX; i++) {
+            good_frame_count = 0;
+            depth[i] = 0;
+            int total_depth = 0;
+            for (j=0; j<FRAME_COUNT; j++)
+            {
+                total_depth += depth_buffer[j][i];
+                if (depth_buffer[j][i] != 0) {
+                    good_frame_count++;
+                }
+                depth_buffer[j][i] = 0;
+            }
+            if (good_frame_count == 0) { depth[i] = 0;}
+            else { depth[i] = total_depth / good_frame_count; }
+        }    
+        frame_counter = 0;
+    } else {
+        frame_counter++;
+    }
 	
 	
 	pthread_mutex_lock(&gl_backbuf_mutex);
@@ -322,7 +354,7 @@ void depth_cb(freenect_device *dev, void *v_depth, uint32_t timestamp)
 	for (i=0; i<FREENECT_FRAME_PIX; i++) {
 		int pval = t_gamma[depth[i]];
 		int lb = pval & 0xff;
-		lb = (depth[i]*1.0/65536)*255;
+		lb = (depth[i]/65536.0)*255;
 		int color_switch = pval>>8;
 		color_switch = 1;
 		switch (color_switch) {
