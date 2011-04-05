@@ -281,11 +281,16 @@ void depth_cb(freenect_device *dev, void *v_depth, uint32_t timestamp)
 		printf("Made plan for size (%d x %d)\n",FREENECT_FRAME_W,FREENECT_FRAME_H);
     }
 
+	
+	for (i=0; i<FREENECT_FRAME_PIX; i++) {
+		real_space_map[i][0] = (float) depth_original[i];
+		real_space_map[i][1] = 0.0;
+	}
+	
 	fftw_execute(plan);
 	
-	for (i=0; i<FREENECT_FRAME_PIX; i++) {real_space_map[i][0] = (float) depth_original[i]; real_space_map[i][1] = 0.0;}
 	for (i=0; i<FREENECT_FRAME_PIX; i++) {
-		abs_map[i] = sqrt(fourier_space_map[i][0] * fourier_space_map[i][0] + fourier_space_map[i][1] * fourier_space_map[i][1]);
+		abs_map[i] = log(sqrt(fourier_space_map[i][0] * fourier_space_map[i][0] + fourier_space_map[i][1] * fourier_space_map[i][1]));
 	}
 
 	double max_value = -1.0e30;
@@ -296,19 +301,17 @@ void depth_cb(freenect_device *dev, void *v_depth, uint32_t timestamp)
 	}
 	
 	double range_value = (65535) / (max_value-min_value);
-	for (i=0; i<FREENECT_FRAME_PIX; i++) {
-		depth[i] = (uint16_t)((abs_map[i]-min_value) * range_value);
+	int j;
+	for (j=0; j<FREENECT_FRAME_PIX; j++) {
+		int x = j % FREENECT_FRAME_W;
+		int y = j / FREENECT_FRAME_W;
+		x = (x+FREENECT_FRAME_W/2)%FREENECT_FRAME_W;
+		y = (y+FREENECT_FRAME_H/2)%FREENECT_FRAME_H;
+		int i = y*FREENECT_FRAME_W+x;
+		depth[i] = (uint16_t)((abs_map[j]-min_value) * range_value);
 	}
+//	printf("%u   %u    %u    %u   %u\n",depth[0],depth[10],depth[100], depth[500], depth[1000]);
 	
-	// uint16_t min_depth = 65535;
-	// uint16_t max_depth = 0;
-	// for (i=0; i<FREENECT_FRAME_PIX; i++) {
-	// 	if (depth[i]>max_depth) max_depth = depth[i];
-	// 	if (depth[i]<min_depth) min_depth = depth[i];
-	// 	
-	// }
-	// printf("min = %u,  max = %u\n",min_depth, max_depth);
-	// printf("minv = %le,  maxv = %le\n",min_value, max_value);
 	
 	pthread_mutex_lock(&gl_backbuf_mutex);
 	
@@ -317,7 +320,10 @@ void depth_cb(freenect_device *dev, void *v_depth, uint32_t timestamp)
 	for (i=0; i<FREENECT_FRAME_PIX; i++) {
 		int pval = t_gamma[depth[i]];
 		int lb = pval & 0xff;
-		switch (pval>>8) {
+		lb = (depth[i]*1.0/65536)*255;
+		int color_switch = pval>>8;
+		color_switch = 1;
+		switch (color_switch) {
 			case 0:
 				depth_mid[3*i+0] = 255;
 				depth_mid[3*i+1] = 255-lb;
