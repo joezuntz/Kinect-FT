@@ -290,7 +290,7 @@ void depth_cb(freenect_device *dev, void *v_depth, uint32_t timestamp)
 	fftw_execute(plan);
 	
 	for (i=0; i<FREENECT_FRAME_PIX; i++) {
-		abs_map[i] = log(sqrt(fourier_space_map[i][0] * fourier_space_map[i][0] + fourier_space_map[i][1] * fourier_space_map[i][1]));
+		abs_map[i] = log((fourier_space_map[i][0] * fourier_space_map[i][0] + fourier_space_map[i][1] * fourier_space_map[i][1]));
 	}
 
 	double max_value = -1.0e30;
@@ -300,7 +300,7 @@ void depth_cb(freenect_device *dev, void *v_depth, uint32_t timestamp)
 		if (abs_map[i]<min_value) min_value = abs_map[i];
 	}
 	
-	double range_value = (65535) / (max_value-min_value);
+	double range_value = (1) / (max_value-min_value);
 	int j;
 	for (j=0; j<FREENECT_FRAME_PIX; j++) {
 		int x = j % FREENECT_FRAME_W;
@@ -308,7 +308,9 @@ void depth_cb(freenect_device *dev, void *v_depth, uint32_t timestamp)
 		x = (x+FREENECT_FRAME_W/2)%FREENECT_FRAME_W;
 		y = (y+FREENECT_FRAME_H/2)%FREENECT_FRAME_H;
 		int i = y*FREENECT_FRAME_W+x;
-		depth[i] = (uint16_t)((abs_map[j]-min_value) * range_value);
+	    double value = ((abs_map[j]-min_value) * range_value);
+        double value_scaled = 1 - cos(value * M_PI);
+        depth[i] = value_scaled * value_scaled * 65535;
 	}
 //	printf("%u   %u    %u    %u   %u\n",depth[0],depth[10],depth[100], depth[500], depth[1000]);
 	
@@ -330,9 +332,9 @@ void depth_cb(freenect_device *dev, void *v_depth, uint32_t timestamp)
 				depth_mid[3*i+2] = 255-lb;
 				break;
 			case 1:
-				depth_mid[3*i+0] = 255;
-				depth_mid[3*i+1] = lb;
-				depth_mid[3*i+2] = 0;
+				depth_mid[3*i+0] = lb;
+				depth_mid[3*i+1] = 255 - lb;
+				depth_mid[3*i+2] = 255 - lb;
 				break;
 			case 2:
 				depth_mid[3*i+0] = 255-lb;
