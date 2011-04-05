@@ -18,7 +18,7 @@ include_directories (../wrappers/c_sync/)
 
 # Mac just has everything already
 if(APPLE)
-  set(CMAKE_EXE_LINKER_FLAGS "-framework OpenGL -framework GLUT")
+  set(CMAKE_EXE_LINKER_FLAGS "-framework OpenGL -framework GLUT -lfftw3")
   target_link_libraries(view_ft freenect)
   if (BUILD_C_SYNC)
     target_link_libraries(view_ft freenect_sync)

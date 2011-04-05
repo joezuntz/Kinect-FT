@@ -44,6 +44,7 @@
 #endif
 
 #include <math.h>
+#include "fftw3.h"
 
 pthread_t freenect_thread;
 volatile int die = 0;
@@ -262,19 +263,53 @@ void *gl_threadfunc(void *arg)
 }
 
 uint16_t t_gamma[2048];
-fftw_complex fourier_space[FREENECT_FRAME_PIX];
+fftw_complex real_space_map[FREENECT_FRAME_PIX];
+fftw_complex fourier_space_map[FREENECT_FRAME_PIX];
+double abs_map[FREENECT_FRAME_PIX];
+uint16_t depth[FREENECT_FRAME_PIX];
 fftw_plan plan;
 int planned = 0;
 
 void depth_cb(freenect_device *dev, void *v_depth, uint32_t timestamp)
 {
 	int i;
-	uint16_t *depth = (uint16_t*)v_depth;
-	for (i=0; i<FREENECT_FRAME_PIX; i++) fourier_space[i] = (float) depth[i];
+	uint16_t *depth_original = (uint16_t*)v_depth;
 	if (!planned){
-		plan = fftw_plan_dft_2d(FREENECT_FRAME_W, FREENECT_FRAME_H, fourier_space, fourier_space, FFTW_FORWARD, unsigned flags);
+		plan = fftw_plan_dft_2d(FREENECT_FRAME_H, FREENECT_FRAME_W, real_space_map, fourier_space_map, FFTW_FORWARD, FFTW_MEASURE);
+		fftw_print_plan(plan);
+		planned=1;
+		printf("Made plan for size (%d x %d)\n",FREENECT_FRAME_W,FREENECT_FRAME_H);
     }
 
+	fftw_execute(plan);
+	
+	for (i=0; i<FREENECT_FRAME_PIX; i++) {real_space_map[i][0] = (float) depth_original[i]; real_space_map[i][1] = 0.0;}
+	for (i=0; i<FREENECT_FRAME_PIX; i++) {
+		abs_map[i] = sqrt(fourier_space_map[i][0] * fourier_space_map[i][0] + fourier_space_map[i][1] * fourier_space_map[i][1]);
+	}
+
+	double max_value = -1.0e30;
+	double min_value = 1.0e30;
+	for (i=0; i<FREENECT_FRAME_PIX; i++) {
+		if (abs_map[i]>max_value) max_value = abs_map[i];
+		if (abs_map[i]<min_value) min_value = abs_map[i];
+	}
+	
+	double range_value = (65535) / (max_value-min_value);
+	for (i=0; i<FREENECT_FRAME_PIX; i++) {
+		depth[i] = (uint16_t)((abs_map[i]-min_value) * range_value);
+	}
+	
+	// uint16_t min_depth = 65535;
+	// uint16_t max_depth = 0;
+	// for (i=0; i<FREENECT_FRAME_PIX; i++) {
+	// 	if (depth[i]>max_depth) max_depth = depth[i];
+	// 	if (depth[i]<min_depth) min_depth = depth[i];
+	// 	
+	// }
+	// printf("min = %u,  max = %u\n",min_depth, max_depth);
+	// printf("minv = %le,  maxv = %le\n",min_value, max_value);
+	
 	pthread_mutex_lock(&gl_backbuf_mutex);
 	
 	
