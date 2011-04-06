@@ -267,8 +267,8 @@ fftw_complex real_space_map[FREENECT_FRAME_PIX];
 fftw_complex fourier_space_map[FREENECT_FRAME_PIX];
 double abs_map[FREENECT_FRAME_PIX];
 uint16_t depth[FREENECT_FRAME_PIX];
-const int FRAME_COUNT = 5;
-uint16_t depth_buffer[5][FREENECT_FRAME_PIX];
+const int FRAME_COUNT = 10;
+uint16_t depth_buffer[10][FREENECT_FRAME_PIX];
 int frame_counter = 0;
 fftw_plan plan;
 int planned = 0;
@@ -319,11 +319,11 @@ void depth_cb(freenect_device *dev, void *v_depth, uint32_t timestamp)
 		int i = y*FREENECT_FRAME_W+x;
 	    double value = ((abs_map[j]-min_value) * range_value);
         double value_scaled = 1 - cos(value * M_PI);
-        depth_buffer[frame_counter][i] = value_scaled * value_scaled * 65535;
+        depth_buffer[frame_counter][i] = value_scaled * 65535;
 	}
 	
-    printf("Frame Count: %i\n", frame_counter);
     int good_frame_count;
+    int k;
 	// Copy the summary of the frames into the frame buffer
     if (frame_counter == FRAME_COUNT - 1) {
         for (i=0; i<FREENECT_FRAME_PIX; i++) {
@@ -333,13 +333,34 @@ void depth_cb(freenect_device *dev, void *v_depth, uint32_t timestamp)
             for (j=0; j<FRAME_COUNT; j++)
             {
                 total_depth += depth_buffer[j][i];
-                if (depth_buffer[j][i] != 0) {
+                /*if (depth_buffer[j][i] != 0) {
+                    good_frame_count++;
+                }*/
+            }
+            
+            // Find the standard deviation
+            double average = (double)total_depth / FRAME_COUNT;
+            double std_dev = 0;
+            for (j=0; j<FRAME_COUNT; j++) {
+                std_dev += (depth_buffer[j][i] - average) * (depth_buffer[j][i] - average);
+            }
+            std_dev = sqrt(std_dev / FRAME_COUNT);
+            double final_total = 0;
+            good_frame_count = 0;
+            
+            // Find the average of values within the standard deviation
+            for (j=0; j<FRAME_COUNT; j++) {
+                if (abs(average - (double)depth_buffer[j][i]) <= std_dev) { 
+                    final_total += depth_buffer[j][i];
                     good_frame_count++;
                 }
-                depth_buffer[j][i] = 0;
             }
-            if (good_frame_count == 0) { depth[i] = 0;}
-            else { depth[i] = total_depth / good_frame_count; }
+            if (final_total == 0) {
+                final_total = depth_buffer[0][i];
+            }
+
+            if (good_frame_count == 0) { depth[i] = 0; }
+            else { depth[i] = final_total / good_frame_count; }
         }    
         frame_counter = 0;
     } else {
@@ -352,48 +373,10 @@ void depth_cb(freenect_device *dev, void *v_depth, uint32_t timestamp)
 	
 	
 	for (i=0; i<FREENECT_FRAME_PIX; i++) {
-		int pval = t_gamma[depth[i]];
-		int lb = pval & 0xff;
-		lb = (depth[i]/65536.0)*255;
-		int color_switch = pval>>8;
-		color_switch = 1;
-		switch (color_switch) {
-			case 0:
-				depth_mid[3*i+0] = 255;
-				depth_mid[3*i+1] = 255-lb;
-				depth_mid[3*i+2] = 255-lb;
-				break;
-			case 1:
-				depth_mid[3*i+0] = lb;
-				depth_mid[3*i+1] = 255 - lb;
-				depth_mid[3*i+2] = 255 - lb;
-				break;
-			case 2:
-				depth_mid[3*i+0] = 255-lb;
-				depth_mid[3*i+1] = 255;
-				depth_mid[3*i+2] = 0;
-				break;
-			case 3:
-				depth_mid[3*i+0] = 0;
-				depth_mid[3*i+1] = 255;
-				depth_mid[3*i+2] = lb;
-				break;
-			case 4:
-				depth_mid[3*i+0] = 0;
-				depth_mid[3*i+1] = 255-lb;
-				depth_mid[3*i+2] = 255;
-				break;
-			case 5:
-				depth_mid[3*i+0] = 0;
-				depth_mid[3*i+1] = 0;
-				depth_mid[3*i+2] = 255-lb;
-				break;
-			default:
-				depth_mid[3*i+0] = 0;
-				depth_mid[3*i+1] = 0;
-				depth_mid[3*i+2] = 0;
-				break;
-		}
+		int lb = (depth[i]/65536.0)*255;
+	    depth_mid[3*i+0] = lb;
+    	depth_mid[3*i+1] = 255 - lb;
+    	depth_mid[3*i+2] = 255 - lb;			
 	}
 	got_depth++;
 	pthread_cond_signal(&gl_frame_cond);
